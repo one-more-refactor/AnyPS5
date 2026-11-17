@@ -2,10 +2,14 @@
 #include "BdaAbi.hpp"
 #include "CacheKey.hpp"
 #include "Optimization/BindingAllocator.hpp"
+#include "Optimization/DescriptorBindingBuilder.hpp"
+#include "Optimization/ResourceMaterializer.hpp"
+#include "PipelineSpecialization.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -249,6 +253,9 @@ void CheckHeaps() {
     Require(BindingAllocator{}.FindBinding(storage.layout, DescriptorBindingForImage(image)).resources.size() == image.mipCount, "storage heap did not reserve each mip");
     const auto shared = allocate(image, 2u);
     Require(BindingAllocator{}.FindBinding(shared.layout, DescriptorBindingForImage(image)).resources.size() == 2u * image.mipCount, "a storage heap did not hold two dynamic-mip images");
+    Require(BindingAllocator{}.FindBinding(allocate(image, 5u).layout, DescriptorBindingForImage(image)).resources.size() == 5u * image.mipCount, "a storage heap did not hold five dynamic-mip images");
+    Require(BindingAllocator{}.FindBinding(allocate(image, 16u).layout, DescriptorBindingForImage(image)).resources.size() == 16u * image.mipCount, "a storage heap did not hold sixteen dynamic-mip images");
+    Reject([&] { allocate(image, 17u); }, "heap capacity exceeded");
     const auto capacity = RuntimeAbi::StorageHeapCapacity / image.mipCount;
     const auto filled = allocate(image, capacity);
     Require(BindingAllocator{}.FindBinding(filled.layout, DescriptorBindingForImage(image)).resources.size() == RuntimeAbi::StorageHeapCapacity, "a full storage heap was not allocated");
@@ -274,12 +281,47 @@ void CheckHeaps() {
     Reject([] { RuntimeAbi::HeapCapacity(RuntimeAbi::Binding::ShaderData); }, "not a typed heap");
 }
 
+void CheckDynamicStorageSpecialization() {
+    using namespace ShaderRecompiler;
+    ImageResource image{};
+    image.resourceClass = ImageResourceClass::Storage;
+    image.numericClass = IrTextureNumericClass::Float;
+    image.dimension = RdnaImageDimension::Dim2D;
+    image.mipMode = ImageMipMode::DynamicStorage;
+    image.written = true;
+    image.fmaskCompatible = false;
+    auto neighbour = image;
+    neighbour.dimension = RdnaImageDimension::Dim2DArray;
+    Require(static_cast<std::uint32_t>(DescriptorBindingForImage(neighbour)) == static_cast<std::uint32_t>(DescriptorBindingForImage(image)) + 1u, "the 2D-array storage class does not follow the 2D storage class");
+    const DescriptorValue sixteenLevels{{0x12366e00u, 0xc2400000u, 0x007fc07fu, 0xd1bf03acu, 0x17u, 0x00700090u, 0u, 0u}, 8u};
+    const auto images = RuntimeAbi::StorageHeapCapacity / RuntimeAbi::StorageMipSlots;
+    IrProgram program;
+    program.Metadata().shaderInfoComplete = true;
+    auto& info = program.Resources().info;
+    info.images.assign(images - 1u, image);
+    info.images.push_back(neighbour);
+    for (const auto& resource : info.images) info.runtimeImageModes.push_back(ResourceMaterializer::RuntimeImageModes(resource));
+    ResourceSnapshot snapshot;
+    snapshot.images.assign(info.images.size(), sixteenLevels);
+    const auto allocation = BindingAllocator{}.Allocate(program, {0u, 0u, 0u, 128u});
+    Require(BindingAllocator{}.FindBinding(allocation.layout, DescriptorBindingForImage(image)).resources.size() == RuntimeAbi::StorageHeapCapacity, "a full storage heap of dynamic-mip images was not allocated");
+    const auto plan = DescriptorBindingBuilder{}.Prepare(allocation.layout, info, IrShaderStage::Compute, snapshot);
+    std::map<std::uint32_t, std::uint32_t> constants;
+    for (const auto& constant : plan.specialization) ++constants[constant.id];
+    Require(std::ranges::all_of(constants, [](const auto& entry) { return entry.second == 1u; }), "a full storage heap shares a descriptor index specialization ID with the next heap");
+    for (const auto& binding : allocation.layout.descriptors) {
+        if (ImageBindingResourceClass(binding.kind) == ImageResourceClass::None) continue;
+        for (std::uint32_t element = 0u; element < binding.resources.size(); ++element) Require(constants.contains(PipelineSpecialization::DescriptorIndex(static_cast<std::uint32_t>(binding.kind), element)), "a heap element has no descriptor index specialization constant");
+    }
+}
+
 }
 
 int main() {
     try {
         CheckAbi();
         CheckHeaps();
+        CheckDynamicStorageSpecialization();
         CheckProfile();
         CheckFeatureDigest();
         std::cout << "shader runtime ABI and device profile tests passed\n";

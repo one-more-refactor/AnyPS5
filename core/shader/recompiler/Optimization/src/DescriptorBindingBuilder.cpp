@@ -22,6 +22,8 @@ namespace ShaderRecompiler {
 static_assert(PipelineSpecialization::ImageBase + ShaderInfo::MaxImages * PipelineSpecialization::ImageWords <= PipelineSpecialization::VertexBase);
 static_assert(PipelineSpecialization::MipCountBase + ShaderInfo::MaxImages <= PipelineSpecialization::StoreQuantizeBase);
 static_assert(PipelineSpecialization::StoreQuantizeBase + ShaderInfo::MaxImages * PipelineSpecialization::StoreQuantizeWords <= PipelineSpecialization::DescriptorIndexBase);
+static_assert(RuntimeAbi::SampledHeapCapacity <= PipelineSpecialization::DescriptorIndexStride && RuntimeAbi::StorageHeapCapacity <= PipelineSpecialization::DescriptorIndexStride && RuntimeAbi::SamplerHeapCapacity <= PipelineSpecialization::DescriptorIndexStride);
+static_assert(PipelineSpecialization::DescriptorIndex(static_cast<std::uint32_t>(RuntimeAbi::Binding::Samplers) + 1u, 0u) <= PipelineSpecialization::CompareBase);
 static_assert(PipelineSpecialization::CompareBase + ShaderInfo::MaxImages * PipelineSpecialization::CompareWords <= PipelineSpecialization::FoldOffsetBase);
 static_assert(PipelineSpecialization::FoldOffsetBase + ShaderInfo::MaxSamplers <= PipelineSpecialization::UnnormalizedBaseLevelBase);
 static_assert(PipelineSpecialization::UnnormalizedBaseLevelBase + ShaderInfo::MaxSamplers <= PipelineSpecialization::MirrorUnnormalizedBase);

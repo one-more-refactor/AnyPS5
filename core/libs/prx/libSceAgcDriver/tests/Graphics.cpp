@@ -8500,6 +8500,11 @@ void tableUpdateAfterBindTests() {
     argumentLimits.sampledImageUpdateAfterBind = true;
     Require(ImageTableCapacity(argumentLimits) == ShaderRecompiler::RuntimeAbi::StageCount * Abi::ImageElementBudget && ImageTableUpdateAfterBind(argumentLimits), "an image table beyond the regular descriptor limits did not take the update-after-bind limits");
     Require(SamplerTableCapacity(argumentLimits) == Abi::SamplerElementBudget && SamplerTableUpdateAfterBind(argumentLimits), "a sampler table beyond the regular descriptor limits did not take the update-after-bind limits");
+    auto minimumLimits = argumentLimits;
+    minimumLimits.descriptorIndexingLimits.maxPerStageDescriptorUpdateAfterBindSampledImages = 500000;
+    minimumLimits.descriptorIndexingLimits.maxPerStageUpdateAfterBindResources = 500000;
+    minimumLimits.descriptorIndexingLimits.maxDescriptorSetUpdateAfterBindSampledImages = 500000;
+    Require(ImageTableCapacity(minimumLimits) == ShaderRecompiler::RuntimeAbi::StageCount * Abi::ImageElementBudget && ImageTableUpdateAfterBind(minimumLimits), "the typed heaps took image table elements at the required update-after-bind limits");
     auto regularLimits = argumentLimits;
     regularLimits.limits.maxPerStageDescriptorSamplers = 1048576;
     regularLimits.limits.maxPerStageDescriptorSampledImages = 1048576;
