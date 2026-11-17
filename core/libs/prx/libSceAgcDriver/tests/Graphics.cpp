@@ -3307,8 +3307,11 @@ void depthExpandPassTests() {
         expectFailure([&] { AgcDriver::Graphics::DecodeDepthExpandPass(selected); }, "with clear, copy, resummarize or decompress bits");
     }
     auto nonFinite = expand();
-    nonFinite.context[0x00b] = 0x7fc00000u;
-    expectFailure([&] { AgcDriver::Graphics::DecodeDepthExpandPass(nonFinite); }, "non-finite register");
+    for (const auto value : {0x7fc00000u, 0x7f800000u, 0xffffffffu}) {
+        nonFinite.context[0x00b] = value;
+        const auto kept = AgcDriver::Graphics::DecodeDepthExpandPass(nonFinite);
+        Require(kept.has_value() && std::bit_cast<std::uint32_t>(kept->source.clearDepth) == value, "an out-of-place DB expand refused or changed a non-finite DB_DEPTH_CLEAR");
+    }
 
     auto alwaysPass = expand();
     alwaysPass.context[0x014] = alwaysPass.context[0x012];
@@ -3433,8 +3436,16 @@ void DepthBoundsBiasTests() {
     }
     queue.context[0x008] = bits(0.25f);
     queue.context[0x009] = bits(0.75f);
-    queue.context[0x00b] = bits(infinity);
-    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "non-finite register");
+    for (const auto value : {bits(infinity), bits(-infinity), bits(std::numeric_limits<float>::quiet_NaN()), 0xffffffffu, bits(0.5f)}) {
+        queue.context[0x00b] = value;
+        state = AgcDriver::Graphics::DecodeState(queue);
+        Require(state.depthTest && state.depth && std::bit_cast<std::uint32_t>(state.depth->clearDepth) == value, "a depth draw that clears nothing refused or changed DB_DEPTH_CLEAR");
+    }
+    queue.context[0x00b] = bits(0.5f);
+    queue.context[0x000] = 1;
+    state = AgcDriver::Graphics::DecodeState(queue);
+    Require(state.depth && state.depth->clearDepth == 0.5f && state.viewport.minDepth == 0.5f && state.viewport.maxDepth == 0.5f, "a depth clear draw did not take its finite DB_DEPTH_CLEAR");
+    queue.context[0x000] = 0;
     queue.context[0x00b] = bits(0.0f);
     queue.context[0x1b3] = 2;
     queue.context[0x1b4] = 2;

@@ -559,7 +559,9 @@ void decodeDepth(const Registers& cx, std::uint32_t depthControl, bool testValEx
     Require(!depthWritten || base(0x014, 0x01c) == readAddress, "depth read and written at different addresses is unsupported");
     Require(!stencil || stencilReadOnly || base(0x015, 0x01d) == stencilReadAddress, "stencil read and written at different addresses is unsupported");
     auto depth = decodeDepthPlane(cx);
-    depth.clearDepth = readFloat(cx, 0x00b);
+    const auto clearBits = read(cx, 0x00b);
+    depth.clearDepth = std::bit_cast<float>(clearBits);
+    if (depthClear && !std::isfinite(depth.clearDepth)) Require(false, zeroMessage(0x00b, clearBits, "a depth clear draw with a non-finite DB_DEPTH_CLEAR"));
     depth.clearStencil = static_cast<std::uint8_t>(read(cx, 0x00a) & 0xffu);
     result.depth = depth;
     result.depthTest = (depthControl & 2u) != 0;
@@ -2838,7 +2840,7 @@ std::optional<DepthExpandPass> DecodeDepthExpandPass(const QueueState& queue) {
     zero(cx, 0x80, ~0u, "window offset");
     if (const auto viewportControl = read(cx, 0x206); viewportControl != 0x43fu) throw std::runtime_error(vteMessage(viewportControl));
     auto target = decodeDepthPlane(cx);
-    target.clearDepth = readFloat(cx, 0x00b);
+    target.clearDepth = std::bit_cast<float>(read(cx, 0x00b));
     target.clearStencil = static_cast<std::uint8_t>(read(cx, 0x00a) & 0xffu);
     if (!drawCovers(cx, target.extent)) reject("over part of the depth surface");
     const auto slice = static_cast<std::uint64_t>(target.firstSlice);

@@ -2,8 +2,10 @@
 #include "DepthFastClearHarness.hpp"
 #include "VulkanTestDevice.hpp"
 #include <array>
+#include <bit>
 #include <cstdio>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -59,6 +61,12 @@ int main() {
         Require(Draw(*device, shaders, surface, {}) == 0u, "a memory value fill shorter than the HTILE cleared the depth");
         FillFromMemory(htile, wholeHtileGroups, 0u);
         Require(Draw(*device, shaders, surface, {}) == Covered, "a memory value fill of ZMask 0 over the whole HTILE did not clear the depth to DB_DEPTH_CLEAR (1.0)");
+        for (const auto value : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), std::bit_cast<float>(0xffffffffu)}) {
+            auto nonFinite = surface;
+            nonFinite.clearDepth = value;
+            Require(Draw(*device, shaders, nonFinite, {.depthWrite = true, .depthCompare = VK_COMPARE_OP_ALWAYS}) == Covered, "a draw that clears nothing on a live depth surface refused a non-finite DB_DEPTH_CLEAR");
+            Require(Draw(*device, shaders, nonFinite, {}) == 0u, "a live depth surface drawn with a non-finite DB_DEPTH_CLEAR lost the 0.5 written before it");
+        }
         std::puts("depth fast clear tests passed");
         return 0;
     } catch (const std::exception& error) {

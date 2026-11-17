@@ -938,6 +938,7 @@ public:
         Require((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0, "depth/stencil format " + std::to_string(hostFormat) + " cannot be an attachment on this device");
         Require(target.samples != 1u || (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0, "depth/stencil format " + std::to_string(hostFormat) + " cannot be sampled on this device");
         Require(target.extent.width <= context.limits.maxFramebufferWidth && target.extent.height <= context.limits.maxFramebufferHeight, "depth target exceeds framebuffer limits");
+        Require(this->sampling.initialDepth.has_value() || std::isfinite(target.clearDepth), "a new depth surface with a non-finite DB_DEPTH_CLEAR is not implemented");
         const VkImageAspectFlags aspects = VK_IMAGE_ASPECT_DEPTH_BIT | (target.stencilAddress != 0 ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u);
         try {
             VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -1174,6 +1175,7 @@ public:
 
     void RecordClear(VkImageAspectFlags aspects) {
         const float depth = depthFill.value_or(clearDepth);
+        Require((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) == 0u || std::isfinite(depth), "a depth fast clear to a non-finite DB_DEPTH_CLEAR is not implemented");
         const std::uint8_t stencil = stencilFill.value_or(clearStencil);
         depthFill.reset();
         stencilFill.reset();
@@ -5110,6 +5112,7 @@ void RunDepthExpandPass(const Context& context, const DepthExpandPass& pass) {
                 read = !stencil && findClearedHtile(source) != clearedHtiles().end() ? Read::Clear : Read::GuestBytes;
             }
         }
+        if (read == Read::Clear && !std::isfinite(source.clearDepth)) throw failure(address, "of a pending HTILE clear to a non-finite DB_DEPTH_CLEAR");
         if (read == Read::Clear) recordPlaneClear(context, destination, source.clearDepth);
         if (read == Read::GuestBytes) {
             const auto plane = CachedStorageSurface(context, depthPlaneView(stencil ? source.stencilAddress : source.address, source.extent, planeFormat));
